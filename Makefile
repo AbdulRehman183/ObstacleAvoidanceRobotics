@@ -12,61 +12,70 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-### Generic Makefile.include for Webots controllers, physics plugins, robot
-### window libraries, remote control libraries and other libraries
-### to be used with GNU make
-###
-### Platforms: Windows, macOS, Linux
-### Languages: C, C++
-###
-### Authors: Olivier Michel, Yvan Bourquin, Fabien Rohrer
-###          Edmund Ronald, Sergei Poskriakov
-###
-###-----------------------------------------------------------------------------
-###
-### This file is meant to be included from the Makefile files located in the
-### Webots projects subdirectories. It is possible to set a number of variables
-### to customize the build process, i.e., add source files, compilation flags,
-### include paths, libraries, etc. These variables should be set in your local
-### Makefile just before including this Makefile.include. This Makefile.include
-### should never be modified.
-###
-### Here is a description of the variables you may set in your local Makefile:
-###
-### ---- C Sources ----
-### if your program uses several C source files:
-### C_SOURCES = my_plugin.c my_clever_algo.c my_graphics.c
-###
-### ---- C++ Sources ----
-### if your program uses several C++ source files:
-### CXX_SOURCES = my_plugin.cc my_clever_algo.cpp my_graphics.c++
-###
-### ---- Compilation options ----
-### if special compilation flags are necessary:
-### CFLAGS = -Wno-unused-result
-###
-### ---- Linked libraries ----
-### if your program needs additional libraries:
-### INCLUDE = -I"/my_library_path/include"
-### LIBRARIES = -L"/path/to/my/library" -lmy_library -lmy_other_library
-###
-### ---- Linking options ----
-### if special linking flags are needed:
-### LFLAGS = -s
-###
-### ---- Webots included libraries ----
-### if you want to use the Webots C API in your C++ controller program:
-### USE_C_API = true
-###
-### ---- Debug mode ----
-### if you want to display the gcc command line for compilation and link, as
-### well as the rm command details used for cleaning:
-### VERBOSE = 1
-###
-###-----------------------------------------------------------------------------
+# Webots Makefile system
+#
+# You may add some variable definitions hereafter to customize the build process
+# See documentation in $(WEBOTS_HOME_PATH)/resources/Makefile.include
 
-### Do not modify: this includes Webots global Makefile.include
+
+CXX_SOURCES = entry_points.cpp
+
+USE_C_API = true
+
+QT_UTILS = $(WEBOTS_HOME)/resources/projects/libraries/qt_utils
+INCLUDE = -I"$(QT_UTILS)"
+LIBRARIES = -L"$(QT_UTILS)" -lqt_utils
+
 null :=
 space := $(null) $(null)
 WEBOTS_HOME_PATH?=$(subst $(space),\ ,$(strip $(subst \,/,$(WEBOTS_HOME))))
 include $(WEBOTS_HOME_PATH)/resources/Makefile.include
+
+
+# Qt linking
+
+CFLAGS += -std=c++17
+MOC_SOURCES = $(addprefix $(BUILD_DIR)/,$(notdir $(HPP_FILES_TO_MOC:.hpp=.moc.cpp)))
+MOC_DIRECTORIES = $(sort $(dir $(HPP_FILES_TO_MOC)))
+OBJECTS += $(addprefix $(BUILD_GOAL_DIR)/,$(notdir $(MOC_SOURCES:.cpp=.o)))
+
+ifeq ($(OSTYPE),windows)
+ CFLAGS += -D_USE_MATH_DEFINES
+ QT_INCLUDE_DIR = $(WEBOTS_HOME)/include/qt
+ MOC = /mingw64/share/qt6/bin/moc
+ MOC_PLATFORM_FLAGS = -D_WIN32
+ DYNAMIC_LIBRARIES += -L"$(WEBOTS_HOME)/msys64/mingw64/bin" -lQt6Core -lQt6Gui -lQt6Widgets
+ INCLUDE += -isystem "$(QT_INCLUDE_DIR)/QtCore" -isystem "$(QT_INCLUDE_DIR)/QtGui" -isystem "$(QT_INCLUDE_DIR)/QtWidgets"
+endif
+
+ifeq ($(OSTYPE),linux)
+ QT_INCLUDE_DIR = $(WEBOTS_HOME)/include/qt
+ QT_LIB_DIR = $(WEBOTS_HOME)/lib/webots
+ MOC = "$(WEBOTS_HOME)/bin/qt/moc"
+ MOC_PLATFORM_FLAGS = -D__linux__
+ DYNAMIC_LIBRARIES += -L"$(QT_LIB_DIR)" -lQt6Core -lQt6Gui -lQt6Widgets
+ INCLUDE += -isystem "$(QT_INCLUDE_DIR)/QtCore" -isystem "$(QT_INCLUDE_DIR)/QtGui" -isystem "$(QT_INCLUDE_DIR)/QtWidgets"
+endif
+
+ifeq ($(OSTYPE),darwin)
+ WBCFLAGS += -Wno-unknown-pragmas
+ FRAMEWORKS_DIR = $(WEBOTS_HOME)/Contents/Frameworks
+ INCLUDE += -F"$(FRAMEWORKS_DIR)"
+ FRAMEWORKS += -F"$(FRAMEWORKS_DIR)"
+ DYNAMIC_LIBRARIES += -bind_at_load $(FRAMEWORKS)
+ MOC = "$(WEBOTS_HOME)/bin/qt/moc"
+ MOC_PLATFORM_FLAGS = -D__APPLE__
+ FRAMEWORKS += -framework QtCore -framework QtGui -framework QtWidgets
+endif
+
+vpath %.cpp $(BUILD_DIR)
+vpath %.hpp $(MOC_DIRECTORIES)
+
+.PRECIOUS: $(MOC_SOURCES)
+
+$(BUILD_DIR)/%.moc.cpp: %.hpp
+	@echo "# moc-generating" $(notdir $<)
+	$(SILENT)$(MOC) $(MOC_PLATFORM_FLAGS) $(INCLUDE:-isystem:-I) $< -o $@
+
+
+$(BUILD_GOAL_DIR)/$(MAIN_TARGET): $(OBJECTS)
